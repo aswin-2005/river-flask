@@ -135,7 +135,7 @@ def cleanup():
         
         # Find users to remove (users in DB but not in active_users list)
         removed_count = 0
-        if len(current_users) > 0:
+        if len(active_users) > 0:
             for user in current_users:
                 if user['username'] not in active_users:
                     if remove_user(user['username']):
