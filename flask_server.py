@@ -123,11 +123,14 @@ def logout():
 def cleanup():
     try:
         # Get the list of active users from the socket server
-        active_users = request.json.get('active_users')
+        if not request.is_json:
+            return jsonify({'error': 'Request must be JSON'}), 400
+            
+        active_users = request.json.get('active_users', [])  # Default to empty list if not provided
         
-        # Validate input
-        if not active_users or not isinstance(active_users, list):
-            return jsonify({'error': 'Invalid active users list'}), 400
+        # Validate input is a list
+        if not isinstance(active_users, list):
+            return jsonify({'error': 'active_users must be a list'}), 400
             
         # Get all current users from database
         response = supabase.table('users').select("*").execute()
@@ -141,9 +144,10 @@ def cleanup():
                     if remove_user(user['username']):
                         removed_count += 1
         else:
+            # If active_users is empty, remove all users
             for user in current_users:
-                remove_user(user['username'])
-                removed_count += 1
+                if remove_user(user['username']):
+                    removed_count += 1
                     
         return jsonify({
             'message': 'Cleanup completed successfully',
