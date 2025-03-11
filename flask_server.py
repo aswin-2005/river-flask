@@ -52,13 +52,6 @@ def checkUserValidity(username: str, token: str):
         print(f"Error checking user validity: {str(e)}")
         return False
 
-# Initialize CSV file
-def init_csv():
-    if not os.path.exists(USERS_CSV):
-        with open(USERS_CSV, 'w', newline='') as file:
-            writer = csv.writer(file)
-            writer.writerow(['username', 'token'])
-
 # Basic error handling
 @app.errorhandler(404)
 def not_found(error):
@@ -125,6 +118,38 @@ def logout():
     username = username.strip()
     remove_user(username)
     return jsonify({'message': 'User logged out successfully'}), 200
+
+@app.route('/cleanup', methods=['POST'])
+def cleanup():
+    try:
+        # Get the list of active users from the socket server
+        active_users = request.json.get('active_users')
+        
+        # Validate input
+        if not active_users or not isinstance(active_users, list):
+            return jsonify({'error': 'Invalid active users list'}), 400
+            
+        # Get all current users from database
+        response = supabase.table('users').select("*").execute()
+        current_users = response.data
+        
+        # Find users to remove (users in DB but not in active_users list)
+        removed_count = 0
+        for user in current_users:
+            if user['username'] not in active_users:
+                if remove_user(user['username']):
+                    removed_count += 1
+                    
+        return jsonify({
+            'message': 'Cleanup completed successfully',
+            'removed_count': removed_count
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            'error': 'Server error during cleanup',
+            'details': str(e)
+        }), 500
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
