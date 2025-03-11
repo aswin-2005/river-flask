@@ -2,65 +2,62 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import random
 import string 
-import csv
 import os
+from supabase import create_client, Client
+from dotenv import load_dotenv
 
+# Load environment variables from .env file
+load_dotenv()
+
+url: str = os.environ.get("SUPABASE_URL")
+key: str = os.environ.get("SUPABASE_KEY")
+supabase: Client = create_client(url, key)
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
-# CSV file path
-USERS_CSV = 'users.csv'
-
-# Create CSV file if it doesn't exist
-def init_csv():
-    if not os.path.exists(USERS_CSV):
-        with open(USERS_CSV, 'w', newline='') as file:
-            writer = csv.writer(file)
-            writer.writerow(['username', 'token'])
-
-# Function to read users from CSV
 def read_users():
-    users = {}
-    with open(USERS_CSV, 'r', newline='') as file:
-        reader = csv.DictReader(file)
-        for row in reader:
-            users[row['username']] = row['token']
-    return users
+    try:
+        response = supabase.table('users').select("*").execute()
+        users = {}
+        for user in response.data:
+            users[user['username']] = user['token']
+        return users
+    except Exception as e:
+        print(f"Error reading users: {str(e)}")
+        return {}
 
-# Function to write user to CSV
 def write_user(username, token):
-    users = read_users()
-    users[username] = token
-    with open(USERS_CSV, 'w', newline='') as file:
-        writer = csv.writer(file)
-        writer.writerow(['username', 'token'])
-        for username, token in users.items():
-            writer.writerow([username, token])
+    try:
+        supabase.table('users').insert({"username": username, "token": token}).execute()
+    except Exception as e:
+        raise Exception(f"Failed to write user: {str(e)}")
 
-# Function to remove user from CSV
 def remove_user(username):
-    users = read_users()
-    if username in users:
-        del users[username]
-        with open(USERS_CSV, 'w', newline='') as file:
-            writer = csv.writer(file)
-            writer.writerow(['username', 'token'])
-            for username, token in users.items():
-                writer.writerow([username, token])
-        return True
-    return False
+    try:
+        response = supabase.table('users').delete().eq('username', username).execute()
+        return len(response.data) > 0
+    except Exception as e:
+        print(f"Error removing user: {str(e)}")
+        return False
 
 def tokenGenerator():
     return ''.join(random.choices(string.ascii_letters + string.digits, k=32))
 
 def checkUserValidity(username: str, token: str):
-    users = read_users()
-    return username in users and users[username] == token
-
+    try:
+        response = supabase.table('users').select("*").eq('username', username).eq('token', token).execute()
+        return len(response.data) > 0
+    except Exception as e:
+        print(f"Error checking user validity: {str(e)}")
+        return False
 
 # Initialize CSV file
-init_csv()
+def init_csv():
+    if not os.path.exists(USERS_CSV):
+        with open(USERS_CSV, 'w', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(['username', 'token'])
 
 # Basic error handling
 @app.errorhandler(404)
