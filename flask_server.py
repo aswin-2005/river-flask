@@ -5,13 +5,41 @@ import string
 import os
 from supabase import create_client, Client
 from dotenv import load_dotenv
+from collections import deque
 
 # Load environment variables from .env file
 load_dotenv()
 
+class UserCache:
+    def __init__(self, max_size=10):
+        self.max_size = max_size
+        self.cache = deque(maxlen=max_size)
+    
+    def add_user(self, username: str, token: str):
+        # Remove if user already exists in cache
+        self.remove_user(username)
+        # Add new user data
+        self.cache.append({"username": username, "token": token})
+    
+    def remove_user(self, username: str):
+        self.cache = deque([user for user in self.cache if user["username"] != username], maxlen=self.max_size)
+    
+    def get_user(self, username: str):
+        for user in self.cache:
+            if user["username"] == username:
+                return user
+        return None
+    
+    def check_user_validity(self, username: str, token: str):
+        user = self.get_user(username)
+        if user and user["token"] == token:
+            return True
+        return False
+
 url: str = os.environ.get("SUPABASE_URL")
 key: str = os.environ.get("SUPABASE_KEY")
 supabase: Client = create_client(url, key)
+user_cache = UserCache()
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -30,12 +58,14 @@ def read_users():
 def write_user(username, token):
     try:
         supabase.table('users').insert({"username": username, "token": token}).execute()
+        user_cache.add_user(username, token)
     except Exception as e:
         raise Exception(f"Failed to write user: {str(e)}")
 
 def remove_user(username):
     try:
         response = supabase.table('users').delete().eq('username', username).execute()
+        user_cache.remove_user(username)
         return len(response.data) > 0
     except Exception as e:
         print(f"Error removing user: {str(e)}")
@@ -45,9 +75,18 @@ def tokenGenerator():
     return ''.join(random.choices(string.ascii_letters + string.digits, k=32))
 
 def checkUserValidity(username: str, token: str):
+    # First check in cache
+    if user_cache.check_user_validity(username, token):
+        return True
+        
+    # If not in cache, check in database
     try:
         response = supabase.table('users').select("*").eq('username', username).eq('token', token).execute()
-        return len(response.data) > 0
+        is_valid = len(response.data) > 0
+        if is_valid:
+            # Add to cache if found in database
+            user_cache.add_user(username, token)
+        return is_valid
     except Exception as e:
         print(f"Error checking user validity: {str(e)}")
         return False
